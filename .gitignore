@@ -1,0 +1,25 @@
+# --- Dependencias (Lo más pesado) ---
+node_modules/
+
+# --- Next.js (Archivos de compilación) ---
+.next/
+out/
+build/
+dist/
+
+# --- Seguridad (Claves secretas - NUNCA SUBIR) ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- Logs y Errores ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Archivos del Sistema Operativo (Basura) ---
+.DS_Store
+Thumbs.db
