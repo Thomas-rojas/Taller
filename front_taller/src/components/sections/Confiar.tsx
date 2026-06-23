@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 
 const PorQueConfiar: React.FC = () => {
   const puntosClave = [
@@ -57,10 +58,13 @@ const PorQueConfiar: React.FC = () => {
           </ul>
 
           {/* Botón con Degradado */}
-          <button className="bg-gradient-to-r from-[#f06529] to-[#f8b244] text-white font-bold py-4 px-8 rounded-full flex items-center justify-center gap-2 w-fit hover:scale-105 transition-transform">
+          <Link
+            href="#galeria"
+            className="bg-gradient-to-r from-[#f06529] to-[#f8b244] text-white font-bold py-4 px-8 rounded-full flex items-center justify-center gap-2 w-fit hover:scale-105 transition-transform"
+          >
             Ver Trabajos Realizados
             <span className="text-xl">→</span>
-          </button>
+          </Link>
         </div>
       </div>
     </section>

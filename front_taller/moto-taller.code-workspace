@@ -1,0 +1,13 @@
+{
+  "folders": [
+    {
+      "name": "Frontend",
+      "path": "."
+    },
+    {
+      "name": "Backend",
+      "path": "../back_taller"
+    }
+  ],
+  "settings": {}
+}

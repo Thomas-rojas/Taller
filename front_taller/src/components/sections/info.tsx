@@ -3,6 +3,7 @@
 import React from 'react';
 import { Instagram, Facebook, Youtube, MessageCircle } from 'lucide-react';
 import Link from 'next/link';
+import { WHATSAPP_URL } from '@/src/lib/contact';
 
 const Footer: React.FC = () => {
   return (
@@ -31,7 +32,7 @@ const Footer: React.FC = () => {
             <li><Link href="/nosotros" className="hover:text-white transition-colors">Nosotros</Link></li>
             <li><Link href="/servicios" className="hover:text-white transition-colors">Servicios</Link></li>
             <li><Link href="/galeria" className="hover:text-white transition-colors">Galería</Link></li>
-            <li><Link href="/contacto" className="hover:text-white transition-colors">Contacto</Link></li>
+            <li><Link href="#contacto" className="hover:text-white transition-colors">Contacto</Link></li>
           </ul>
         </div>
 
@@ -67,7 +68,7 @@ const Footer: React.FC = () => {
             ¿Tienes alguna pregunta? Escríbenos y te responderemos pronto.
           </p>
           <a 
-            href="https://wa.me/tu-numero" 
+            href={WHATSAPP_URL}
             target="_blank" 
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 bg-[#ff6b35] hover:bg-[#e85a20] text-white font-bold py-3 px-6 rounded-full transition-all shadow-lg"

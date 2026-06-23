@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { WHATSAPP_URL } from '@/src/lib/contact';
 
 const Nav = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -36,12 +37,14 @@ const Nav = () => {
 
           {/* Botón CTA */}
           <div className="hidden sm:block">
-            <Link 
-              href="/contacto" 
+            <a
+              href={WHATSAPP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
               className="border-2 border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white px-6 py-2 rounded-full font-bold transition-all duration-300"
             >
               Contáctanos
-            </Link>
+            </a>
           </div>
 
           {/* Botón Menú Móvil */}
@@ -66,11 +69,11 @@ const Nav = () => {
       {isOpen && (
         <div className="md:hidden bg-black/95 border-b border-white/10">
           <div className="px-4 pt-2 pb-6 space-y-2">
-            <Link href="/" className="block px-3 py-2 hover:text-orange-500">Inicio</Link>
-            <Link href="/nosotros" className="block px-3 py-2 hover:text-orange-500">Nosotros</Link>
-            <Link href="/servicios" className="block px-3 py-2 hover:text-orange-500">Servicios</Link>
-            <Link href="/galeria" className="block px-3 py-2 hover:text-orange-500">Galería</Link>
-            <Link href="/contacto" className="block px-3 py-2 hover:text-orange-500">Contacto</Link>
+            <Link href="#inicio" className="block px-3 py-2 hover:text-orange-500">Inicio</Link>
+            <Link href="#nosotros" className="block px-3 py-2 hover:text-orange-500">Nosotros</Link>
+            <Link href="#servicios" className="block px-3 py-2 hover:text-orange-500">Servicios</Link>
+            <Link href="#galeria" className="block px-3 py-2 hover:text-orange-500">Galería</Link>
+            <Link href="#contacto" className="block px-3 py-2 hover:text-orange-500">Contacto</Link>
           </div>
         </div>
       )}

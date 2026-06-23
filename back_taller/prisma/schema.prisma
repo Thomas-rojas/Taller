@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Servicio {
+  id          String   @id @default(cuid())
+  titulo      String
+  descripcion String
+  icono       String   @default("⚙️")
+  activo      Boolean  @default(true)
+  orden       Int      @default(0)
+  citas       Cita[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Cita {
+  id             String    @id @default(cuid())
+  nombre         String
+  telefono       String
+  email          String?
+  mensaje        String?
+  fechaPreferida DateTime?
+  fechaEntrega   DateTime?
+  googleEventId  String?
+  estado         String    @default("pendiente")
+  servicioId     String?
+  servicio       Servicio? @relation(fields: [servicioId], references: [id], onDelete: SetNull)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model GaleriaItem {
+  id          String   @id @default(cuid())
+  src         String
+  alt         String
+  titulo      String
+  descripcion String
+  size        String   @default("small")
+  orden       Int      @default(0)
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MensajeChat {
+  id        String   @id @default(cuid())
+  mensaje   String
+  respuesta String?
+  createdAt DateTime @default(now())
+}
+
+model PreguntaFrecuente {
+  id        String   @id @default(cuid())
+  pregunta  String
+  respuesta String
+  activo    Boolean  @default(true)
+  orden     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Configuracion {
+  id        String   @id @default("default")
+  whatsapp  String
+  telefono  String
+  direccion String
+  horario   String?
+  instagram String?
+  facebook  String?
+  youtube   String?
+  updatedAt DateTime @updatedAt
+}

@@ -1,5 +1,6 @@
 import React from "react";
 import Image from "next/image";
+import { WHATSAPP_URL } from "@/src/lib/contact";
 
 const Hero=()=>{
     return (
@@ -37,8 +38,9 @@ const Hero=()=>{
 
           {/* Botón WhatsApp */}
           <a 
-            href="https://wa.me/tu-numero" 
-            target="_blank" 
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-3 bg-[#ff7341] hover:bg-[#e65d2f] text-white font-bold py-4 px-8 rounded-full text-lg transition-all transform hover:scale-105 shadow-xl"
           >
             {/* Icono de WhatsApp (SVG simplificado) */}
