@@ -27,4 +27,28 @@ export function diaSiguiente(fechaISO: string) {
   return aFechaCalendario(fecha);
 }
 
+/** Genera todas las fechas (YYYY-MM-DD) desde fechaInicio hasta el fin de ese mes. */
+export function generarFechasHastaFinDeMes(fechaInicio: Date): string[] {
+  const baseISO = aFechaCalendario(fechaInicio);
+  const [anio, mes, dia] = baseISO.split("-").map(Number);
+  const ultimoDia = new Date(anio, mes, 0).getDate();
+  const fechas: string[] = [];
+
+  for (let d = dia; d <= ultimoDia; d++) {
+    fechas.push(aFechaCalendario(new Date(anio, mes - 1, d)));
+  }
+
+  return fechas;
+}
+
+/** @deprecated Usar generarFechasHastaFinDeMes */
+export function generarFechasBloqueadas(fechaInicio: Date): string[] {
+  return generarFechasHastaFinDeMes(fechaInicio);
+}
+
+export function esDomingo(fecha: Date): boolean {
+  const iso = aFechaCalendario(fecha);
+  return new Date(`${iso}T12:00:00`).getDay() === 0;
+}
+
 export { TIMEZONE, DIAS_RETRASO_ENTREGA };

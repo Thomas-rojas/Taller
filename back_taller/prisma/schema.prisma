@@ -20,19 +20,39 @@ model Servicio {
 }
 
 model Cita {
-  id             String    @id @default(cuid())
-  nombre         String
-  telefono       String
-  email          String?
-  mensaje        String?
-  fechaPreferida DateTime?
-  fechaEntrega   DateTime?
-  googleEventId  String?
-  estado         String    @default("pendiente")
-  servicioId     String?
-  servicio       Servicio? @relation(fields: [servicioId], references: [id], onDelete: SetNull)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                       String         @id @default(cuid())
+  nombre                   String
+  telefono                 String
+  email                    String?
+  mensaje                  String?
+  placa                    String?
+  descripcionTrabajo       String?
+  datosReparacionBloqueados Boolean       @default(false)
+  registradoPor            String?
+  fechaPreferida           DateTime?
+  fechaRecepcion           DateTime?
+  fechaEntrega             DateTime?
+  fechaEntregaReal         DateTime?
+  googleEventId            String?
+  estado                   String         @default("pendiente")
+  servicioId               String?
+  servicio                 Servicio?      @relation(fields: [servicioId], references: [id], onDelete: SetNull)
+  diasBloqueados           DiaBloqueado[]
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+}
+
+model DiaBloqueado {
+  id        String   @id @default(cuid())
+  fecha     String
+  citaId    String
+  cita      Cita     @relation(fields: [citaId], references: [id], onDelete: Cascade)
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fecha, citaId])
+  @@index([fecha, activo])
 }
 
 model GaleriaItem {

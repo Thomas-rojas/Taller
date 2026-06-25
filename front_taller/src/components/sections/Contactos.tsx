@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import { MessageCircle, Phone, MapPin, Clock, Send } from "lucide-react";
 import { api, type ConfigTaller, type Servicio } from "@/src/lib/api";
 import { WHATSAPP_URL, WHATSAPP_DISPLAY } from "@/src/lib/contact";
+import DatePickerCita from "@/src/components/ui/DatePickerCita";
+import { useCalendarioDisponibilidad } from "@/src/hooks/useCalendarioDisponibilidad";
 
 const ContactPage = () => {
   const [config, setConfig] = useState<ConfigTaller | null>(null);
@@ -17,6 +19,7 @@ const ContactPage = () => {
     servicioId: "",
   });
   const [loading, setLoading] = useState(false);
+  const { fechasBloqueadas, recepciones, refrescar } = useCalendarioDisponibilidad();
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   useEffect(() => {
@@ -34,6 +37,12 @@ const ContactPage = () => {
         });
       });
   }, []);
+
+  useEffect(() => {
+    if (form.fechaPreferida && fechasBloqueadas.includes(form.fechaPreferida)) {
+      setForm((prev) => ({ ...prev, fechaPreferida: "" }));
+    }
+  }, [fechasBloqueadas, form.fechaPreferida]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,6 +72,7 @@ const ContactPage = () => {
         type: result.calendarSync?.synced ? "ok" : "ok",
         text: mensaje,
       });
+      await refrescar();
       setForm({
         nombre: "",
         telefono: "",
@@ -179,13 +189,15 @@ const ContactPage = () => {
                 </option>
               ))}
             </select>
-            <input
-              type="date"
-              min={new Date().toISOString().split("T")[0]}
-              value={form.fechaPreferida}
-              onChange={(e) => setForm({ ...form, fechaPreferida: e.target.value })}
-              className="bg-[#262626] rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-orange-500"
-            />
+            <div>
+              <p className="text-sm text-gray-400 mb-2">Fecha preferida (opcional)</p>
+              <DatePickerCita
+                value={form.fechaPreferida}
+                onChange={(fechaPreferida) => setForm({ ...form, fechaPreferida })}
+                fechasBloqueadas={fechasBloqueadas}
+                recepciones={recepciones}
+              />
+            </div>
             <textarea
               placeholder="Cuéntanos qué necesita tu moto"
               rows={3}
