@@ -32,6 +32,14 @@ const Nav = () => {
               <li><Link href="#servicios" className="hover:text-orange-500 transition-colors">Servicios</Link></li>
               <li><Link href="#galeria" className="hover:text-orange-500 transition-colors">Galería</Link></li>
               <li><Link href="#contacto" className="hover:text-orange-500 transition-colors">Contacto</Link></li>
+              <li>
+                <Link
+                  href="/mecanico"
+                  className="text-gray-400 hover:text-orange-500 transition-colors"
+                >
+                  Mecánico
+                </Link>
+              </li>
             </ul>
           </div>
 
@@ -74,6 +82,9 @@ const Nav = () => {
             <Link href="#servicios" className="block px-3 py-2 hover:text-orange-500">Servicios</Link>
             <Link href="#galeria" className="block px-3 py-2 hover:text-orange-500">Galería</Link>
             <Link href="#contacto" className="block px-3 py-2 hover:text-orange-500">Contacto</Link>
+            <Link href="/mecanico" className="block px-3 py-2 text-gray-400 hover:text-orange-500">
+              Panel mecánico
+            </Link>
           </div>
         </div>
       )}

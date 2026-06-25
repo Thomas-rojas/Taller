@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Bike, Calendar, KeyRound, Lock, LogOut, PackageCheck, PackageOpen, Search, X } from "lucide-react";
+import { Bike, Calendar, KeyRound, Lock, LogOut, PackageCheck, PackageOpen, Search, X, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { api, type Cita } from "@/src/lib/api";
 import { hoyISO } from "@/src/lib/fechas";
 
@@ -195,13 +196,22 @@ export default function MecanicoPage() {
               <p className="text-gray-400">Recepción, entrega y bloqueo de calendario</p>
             </div>
           </div>
-          <button
-            onClick={cerrarSesion}
-            className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
-          >
-            <LogOut size={18} />
-            Salir
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/"
+              className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm"
+            >
+              <ArrowLeft size={16} />
+              Volver al sitio
+            </Link>
+            <button
+              onClick={cerrarSesion}
+              className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+            >
+              <LogOut size={18} />
+              Salir
+            </button>
+          </div>
         </div>
 
         {feedback && (
