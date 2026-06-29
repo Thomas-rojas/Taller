@@ -21,6 +21,7 @@ const ICONO_TIPO: Record<string, typeof Wrench> = {
   cita_solicitada: CalendarCheck,
   confirmada: CheckCircle2,
   recepcion: Bike,
+  trabajo_progreso: Wrench,
   trabajo: Wrench,
   finalizada: ClipboardList,
   lista_retiro: Package,
@@ -126,6 +127,7 @@ export default function ClienteHistorialVivo({ token, nombre, citas }: ClienteHi
         {actividades.map((actividad, index) => {
           const Icono = ICONO_TIPO[actividad.tipo] ?? Wrench;
           const esNueva = nuevas.has(actividad.id);
+          const enProgreso = actividad.tipo === "trabajo_progreso";
           const datos = actividad.datos;
           const fotosIngreso = datos?.fotos ?? [];
           const videosIngreso = datos?.videos ?? [];
@@ -158,14 +160,21 @@ export default function ClienteHistorialVivo({ token, nombre, citas }: ClienteHi
               <div
                 className={[
                   "min-w-0 flex-1 rounded-2xl border p-4 transition-colors",
-                  esNueva
-                    ? "border-[#ff6b2c]/40 bg-[#ff6b2c]/5"
-                    : "border-white/5 bg-[#161d2b]",
+                  enProgreso
+                    ? "border-blue-500/30 bg-blue-500/5"
+                    : esNueva
+                      ? "border-[#ff6b2c]/40 bg-[#ff6b2c]/5"
+                      : "border-white/5 bg-[#161d2b]",
                 ].join(" ")}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <p className="text-sm font-semibold text-white">{actividad.titulo}</p>
-                  {esNueva && (
+                  {enProgreso && (
+                    <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-300">
+                      En progreso
+                    </span>
+                  )}
+                  {esNueva && !enProgreso && (
                     <span className="rounded-full bg-[#ff6b2c] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
                       Nuevo
                     </span>
@@ -176,11 +185,15 @@ export default function ClienteHistorialVivo({ token, nombre, citas }: ClienteHi
                   <p className="mt-1 text-xs text-[#ff6b2c]/80">{actividad.servicio}</p>
                 )}
 
-                {actividad.descripcion && (
+                {actividad.descripcion ? (
                   <p className="mt-2 text-sm text-[#9ca3af] leading-relaxed">
                     {actividad.descripcion}
                   </p>
-                )}
+                ) : enProgreso ? (
+                  <p className="mt-2 text-sm text-[#6b7280] italic">
+                    El técnico está registrando este trabajo...
+                  </p>
+                ) : null}
 
                 <p className="mt-2 text-[10px] uppercase tracking-wider text-[#6b7280]">
                   {formatearFechaCompleta(actividad.createdAt)}

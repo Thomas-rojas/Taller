@@ -2,6 +2,7 @@ export type FotoTrabajoItem = {
   id: string;
   file?: File | null;
   preview?: string | null;
+  url?: string | null;
 };
 
 export type ItemTrabajo = {
@@ -22,6 +23,10 @@ export type ItemTrabajoForm = {
 
 export function crearFotoTrabajo(): FotoTrabajoItem {
   return { id: crypto.randomUUID() };
+}
+
+export function fotoTrabajoPersistida(foto: FotoTrabajoItem) {
+  return Boolean(foto.file) || Boolean(foto.url?.startsWith("/uploads/"));
 }
 
 export function trabajoVacio(): ItemTrabajoForm {
@@ -74,6 +79,49 @@ export function parsearTrabajos(raw: string | null | undefined): ItemTrabajo[] |
 
 export function liberarPreviewsTrabajo(trabajo: ItemTrabajoForm) {
   for (const foto of [...trabajo.fotosViejos, ...trabajo.fotosNuevos]) {
-    if (foto.preview) URL.revokeObjectURL(foto.preview);
+    if (foto.preview?.startsWith("blob:")) URL.revokeObjectURL(foto.preview);
   }
+}
+
+export function fotoDesdeUrl(url: string): FotoTrabajoItem {
+  return { id: crypto.randomUUID(), url, preview: url };
+}
+
+export function formDesdeTrabajoBorrador(
+  raw: string | null | undefined,
+): { placa: string; trabajos: ItemTrabajoForm[] } | null {
+  if (!raw?.trim()) return null;
+  try {
+    const data = JSON.parse(raw) as unknown;
+    if (!Array.isArray(data) || data.length === 0) return null;
+
+    return {
+      placa: "",
+      trabajos: data.map((trabajo) => {
+        const item = trabajo as {
+          parte?: string;
+          descripcion?: string;
+          fotosViejos?: string[];
+          fotosNuevos?: string[];
+        };
+        return {
+          parte: item.parte?.trim() ?? "",
+          descripcion: item.descripcion?.trim() ?? "",
+          fotosViejos: (item.fotosViejos ?? []).map(fotoDesdeUrl),
+          fotosNuevos: (item.fotosNuevos ?? []).map(fotoDesdeUrl),
+        };
+      }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function trabajoTieneContenidoParaBorrador(trabajo: ItemTrabajoForm) {
+  return (
+    Boolean(trabajo.parte.trim()) ||
+    Boolean(trabajo.descripcion.trim()) ||
+    trabajo.fotosViejos.length > 0 ||
+    trabajo.fotosNuevos.length > 0
+  );
 }

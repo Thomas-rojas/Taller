@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bike,
   Calendar,
@@ -24,7 +24,7 @@ import {
 import Link from "next/link";
 import { api, type Cita, type CitaPendienteRevision, type HistorialTrabajo, type Mecanico, type MecanicoConTrabajos } from "@/src/lib/api";
 import { hoyISO } from "@/src/lib/fechas";
-import { type ItemTrabajoForm, crearFotoTrabajo, liberarPreviewsTrabajo, trabajoVacio } from "@/src/lib/trabajos";
+import { type ItemTrabajoForm, crearFotoTrabajo, formDesdeTrabajoBorrador, fotoTrabajoPersistida, liberarPreviewsTrabajo, trabajoTieneContenidoParaBorrador, trabajoVacio } from "@/src/lib/trabajos";
 import { recepcionVacia } from "@/src/lib/estadoIngreso";
 import AuthMecanico from "@/src/components/mecanico/AuthMecanico";
 import TrabajosDisplay from "@/src/components/mecanico/TrabajosDisplay";
@@ -128,6 +128,13 @@ export default function MecanicoPage() {
   const [fotosObligatoriasError, setFotosObligatoriasError] = useState<
     Record<string, boolean>
   >({});
+  const [borradorEstado, setBorradorEstado] = useState<
+    Record<string, "idle" | "guardando" | "guardado" | "error">
+  >({});
+  const entregaFormInicializado = useRef<Set<string>>(new Set());
+  const autosaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const entregaFormRef = useRef(entregaForm);
+  entregaFormRef.current = entregaForm;
   const [busquedaFecha, setBusquedaFecha] = useState("");
 
   useEffect(() => {
@@ -237,6 +244,110 @@ export default function MecanicoPage() {
     return () => clearInterval(intervalo);
   }, [token, esAdmin, whatsappEstado?.automaticoHabilitado, whatsappEstado?.conectado]);
 
+  useEffect(() => {
+    setEntregaForm((prev) => {
+      let cambio = false;
+      const next = { ...prev };
+
+      for (const cita of citas) {
+        if (cita.estado !== "recibida" || cita.datosReparacionBloqueados) continue;
+        if (!cita.descripcionTrabajo) continue;
+        if (entregaFormInicializado.current.has(cita.id)) continue;
+
+        const restaurado = formDesdeTrabajoBorrador(cita.descripcionTrabajo);
+        if (restaurado) {
+          next[cita.id] = {
+            placa: cita.placa?.trim().toUpperCase() ?? "",
+            trabajos: restaurado.trabajos,
+          };
+          entregaFormInicializado.current.add(cita.id);
+          cambio = true;
+        }
+      }
+
+      return cambio ? next : prev;
+    });
+  }, [citas]);
+
+  const aplicarBorradorGuardado = useCallback((citaId: string, descripcionTrabajo: string | null) => {
+    const restaurado = formDesdeTrabajoBorrador(descripcionTrabajo);
+    if (!restaurado) return;
+
+    setEntregaForm((prev) => {
+      const actual = prev[citaId];
+      if (!actual) return { ...prev, [citaId]: restaurado };
+
+      const trabajos = actual.trabajos.map((local, index) => {
+        const servidor = restaurado.trabajos[index];
+        if (!servidor) return local;
+
+        return {
+          parte: local.parte,
+          descripcion: local.descripcion,
+          fotosViejos: [
+            ...servidor.fotosViejos,
+            ...local.fotosViejos.filter((foto) => foto.file),
+          ],
+          fotosNuevos: [
+            ...servidor.fotosNuevos,
+            ...local.fotosNuevos.filter((foto) => foto.file),
+          ],
+        };
+      });
+
+      return {
+        ...prev,
+        [citaId]: {
+          placa: actual.placa || restaurado.placa,
+          trabajos,
+        },
+      };
+    });
+  }, []);
+
+  const guardarBorradorTrabajo = useCallback(
+    async (citaId: string) => {
+      if (!token) return;
+      const datos = entregaFormRef.current[citaId];
+      if (!datos) return;
+
+      const trabajosConContenido = datos.trabajos.filter(trabajoTieneContenidoParaBorrador);
+      if (trabajosConContenido.length === 0) return;
+
+      setBorradorEstado((prev) => ({ ...prev, [citaId]: "guardando" }));
+      try {
+        const result = await api.guardarTrabajoBorrador(token, citaId, {
+          placa: datos.placa,
+          trabajos: datos.trabajos,
+        });
+        aplicarBorradorGuardado(citaId, result.cita.descripcionTrabajo);
+        entregaFormInicializado.current.add(citaId);
+        setBorradorEstado((prev) => ({ ...prev, [citaId]: "guardado" }));
+        setTimeout(() => {
+          setBorradorEstado((prev) =>
+            prev[citaId] === "guardado" ? { ...prev, [citaId]: "idle" } : prev,
+          );
+        }, 2500);
+      } catch {
+        setBorradorEstado((prev) => ({ ...prev, [citaId]: "error" }));
+      }
+    },
+    [token, aplicarBorradorGuardado],
+  );
+
+  const programarGuardadoBorrador = useCallback(
+    (citaId: string) => {
+      entregaFormInicializado.current.add(citaId);
+      if (autosaveTimers.current[citaId]) {
+        clearTimeout(autosaveTimers.current[citaId]);
+      }
+      autosaveTimers.current[citaId] = setTimeout(() => {
+        void guardarBorradorTrabajo(citaId);
+      }, 1500);
+    },
+    [guardarBorradorTrabajo],
+  );
+
   const handleLogin = (newToken: string, nombre?: string) => {
     sessionStorage.setItem(STORAGE_KEY, newToken);
     if (nombre) sessionStorage.setItem(STORAGE_NOMBRE, nombre);
@@ -299,6 +410,7 @@ export default function MecanicoPage() {
       const actual = prev[citaId] ?? entregaInicial();
       return { ...prev, [citaId]: { ...actual, placa: placa.toUpperCase() } };
     });
+    programarGuardadoBorrador(citaId);
   };
 
   const actualizarTrabajo = (
@@ -314,6 +426,7 @@ export default function MecanicoPage() {
       );
       return { ...prev, [citaId]: { ...actual, trabajos } };
     });
+    programarGuardadoBorrador(citaId);
   };
 
   const agregarFotoTrabajo = (
@@ -340,6 +453,7 @@ export default function MecanicoPage() {
       delete rest[citaId];
       return rest;
     });
+    programarGuardadoBorrador(citaId);
   };
 
   const quitarFotoTrabajo = (
@@ -353,9 +467,8 @@ export default function MecanicoPage() {
       const actual = prev[citaId] ?? entregaInicial();
       const trabajos = actual.trabajos.map((item, i) => {
         if (i !== index) return item;
-        if (item[campo].length <= 1) return item;
         const removida = item[campo][fotoIndex];
-        if (removida?.preview) URL.revokeObjectURL(removida.preview);
+        if (removida?.preview?.startsWith("blob:")) URL.revokeObjectURL(removida.preview);
         return {
           ...item,
           [campo]: item[campo].filter((_, j) => j !== fotoIndex),
@@ -363,6 +476,7 @@ export default function MecanicoPage() {
       });
       return { ...prev, [citaId]: { ...actual, trabajos } };
     });
+    programarGuardadoBorrador(citaId);
   };
 
   const agregarTrabajo = (citaId: string) => {
@@ -373,6 +487,7 @@ export default function MecanicoPage() {
         [citaId]: { ...actual, trabajos: [...actual.trabajos, trabajoVacio()] },
       };
     });
+    programarGuardadoBorrador(citaId);
   };
 
   const quitarTrabajo = (citaId: string, index: number) => {
@@ -389,6 +504,7 @@ export default function MecanicoPage() {
         },
       };
     });
+    programarGuardadoBorrador(citaId);
   };
 
   const abrirRecepcion = (citaId: string) => {
@@ -578,14 +694,15 @@ export default function MecanicoPage() {
       return;
     }
 
-    const sinArchivo = trabajosValidos.some(
+    const fotosSinGuardar = trabajosValidos.some(
       (t) =>
-        t.fotosViejos.some((f) => !f.file) || t.fotosNuevos.some((f) => !f.file),
+        t.fotosViejos.some((f) => !fotoTrabajoPersistida(f)) ||
+        t.fotosNuevos.some((f) => !fotoTrabajoPersistida(f)),
     );
-    if (sinArchivo) {
+    if (fotosSinGuardar) {
       setFeedback({
         type: "error",
-        text: "Hay fotos sin archivo válido. Vuelve a agregarlas.",
+        text: "Hay fotos que aún no se guardaron. Espera un momento o vuelve a agregarlas.",
       });
       return;
     }
@@ -1334,9 +1451,24 @@ export default function MecanicoPage() {
                       />
                     </div>
                     <div>
-                      <label className="text-sm text-gray-400 mb-2 block">
-                        Trabajos realizados <span className="text-[#e8774a]">*</span>
-                      </label>
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <label className="text-sm text-gray-400 block">
+                          Trabajos realizados <span className="text-[#e8774a]">*</span>
+                        </label>
+                        {borradorEstado[cita.id] === "guardando" && (
+                          <span className="text-xs text-blue-400">Guardando para el cliente...</span>
+                        )}
+                        {borradorEstado[cita.id] === "guardado" && (
+                          <span className="text-xs text-green-400">Visible para el cliente</span>
+                        )}
+                        {borradorEstado[cita.id] === "error" && (
+                          <span className="text-xs text-red-400">No se pudo guardar el avance</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Lo que escribas y las fotos que subas se muestran al cliente en vivo, antes de
+                        finalizar.
+                      </p>
                       <div className="flex flex-col gap-3">
                         {obtenerEntregaForm(cita.id).trabajos.map((trabajo, index) => (
                           <div
@@ -1434,7 +1566,7 @@ export default function MecanicoPage() {
                                         <div className="flex flex-col gap-2">
                                           {fotos.map((foto, fotoIndex) => (
                                             <div key={foto.id} className="relative">
-                                              {fotos.length > 1 && (
+                                              {fotos.length > 0 && (
                                                 <button
                                                   type="button"
                                                   onClick={() =>
@@ -1451,9 +1583,9 @@ export default function MecanicoPage() {
                                                   <X size={14} />
                                                 </button>
                                               )}
-                                              {foto.preview && (
+                                              {(foto.preview ?? foto.url) && (
                                                 <img
-                                                  src={foto.preview}
+                                                  src={foto.preview ?? foto.url ?? ""}
                                                   alt={`${titulo} ${fotoIndex + 1}`}
                                                   className="rounded-lg w-full max-h-40 object-cover border border-[#333]"
                                                 />

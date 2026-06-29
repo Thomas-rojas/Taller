@@ -37,6 +37,11 @@ import {
 } from "../services/notificacionEntrega.js";
 import { registrarActividadCita } from "../services/citaActividad.js";
 import { crearCitaSolicitud } from "../services/crearCitaSolicitud.js";
+import {
+  guardarTrabajoBorrador,
+  parsearTrabajosMultipart,
+  trabajosBorradorTienenContenido,
+} from "../services/trabajoBorrador.js";
 
 const router = Router();
 
@@ -340,16 +345,62 @@ router.post(
   },
 );
 
-const itemTrabajoSchema = z.object({
-  parte: z
-    .string()
-    .min(1, "Indica la pieza o componente")
-    .max(100, "El nombre es demasiado largo"),
-  descripcion: z
-    .string()
-    .min(1, "Describe qué se le hizo")
-    .max(500, "La descripción es demasiado larga"),
-});
+router.post(
+  "/:id/trabajo-borrador",
+  requireMechanic,
+  (req, res, next) => {
+    uploadFotosTrabajo.any()(req, res, (err) => {
+      if (err) {
+        return next(new AppError(400, err instanceof Error ? err.message : "Error al subir fotos"));
+      }
+      next();
+    });
+  },
+  async (req, res, next) => {
+    try {
+      const bodySchema = z.object({
+        placa: z.string().max(10).optional(),
+        trabajos: z.string().min(1, "Indica los trabajos"),
+      });
+      const { placa, trabajos: trabajosRaw } = bodySchema.parse(req.body);
+
+      const archivos = (req.files as Express.Multer.File[] | undefined) ?? [];
+      const trabajos = parsearTrabajosMultipart(trabajosRaw, archivos, {
+        requiereFotosCompletas: false,
+      });
+
+      const citaActual = await prisma.cita.findUnique({
+        where: { id: idParam(req.params) },
+      });
+
+      if (!citaActual) {
+        throw new AppError(404, "Cita no encontrada");
+      }
+
+      if (citaActual.estado !== "recibida") {
+        throw new AppError(400, "Solo se puede guardar el borrador mientras la moto está en taller.");
+      }
+
+      if (citaActual.datosReparacionBloqueados) {
+        throw new AppError(400, "El trabajo ya fue finalizado y no puede modificarse.");
+      }
+
+      if (!trabajosBorradorTienenContenido(trabajos)) {
+        throw new AppError(400, "Agrega al menos un dato o una foto para guardar.");
+      }
+
+      const cita = await guardarTrabajoBorrador(idParam(req.params), placa, trabajos);
+      const rol = req.staffRole ?? "mecanico";
+
+      res.json({
+        message: "Borrador guardado. El cliente puede ver el avance en su portal.",
+        cita: filtrarCitaParaStaff(cita, rol, req.mecanicoId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 router.post(
   "/:id/entregar",
@@ -375,46 +426,17 @@ router.post(
     const { fechaEntrega: fechaEntregaRaw, placa, trabajos: trabajosRaw } =
       bodySchema.parse(req.body);
 
-    let trabajosParsed: unknown;
-    try {
-      trabajosParsed = JSON.parse(trabajosRaw);
-    } catch {
-      throw new AppError(400, "Formato de trabajos inválido.");
-    }
-
-    const trabajos = z.array(itemTrabajoSchema).min(1, "Agrega al menos un trabajo").parse(trabajosParsed);
-
     const archivos = (req.files as Express.Multer.File[] | undefined) ?? [];
-    const fotosPorTrabajo = Array.from({ length: trabajos.length }, () => ({
-      viejos: [] as Express.Multer.File[],
-      nuevos: [] as Express.Multer.File[],
-    }));
+    const trabajos = parsearTrabajosMultipart(trabajosRaw, archivos, {
+      requiereFotosCompletas: true,
+    });
 
-    for (const archivo of archivos) {
-      const match = archivo.fieldname.match(/^trabajo_(\d+)_(viejo|nuevo)$/);
-      if (!match) continue;
-      const indice = Number(match[1]);
-      const tipo = match[2];
-      if (indice < 0 || indice >= trabajos.length) continue;
-      if (tipo === "viejo") fotosPorTrabajo[indice].viejos.push(archivo);
-      else fotosPorTrabajo[indice].nuevos.push(archivo);
+    const incompleto = trabajos.some((t) => !t.parte.trim() || !t.descripcion.trim());
+    if (incompleto) {
+      throw new AppError(400, "Cada trabajo debe tener la pieza y la descripción completas.");
     }
 
-    const trabajosConFoto = trabajos.map((trabajo, index) => {
-      const { viejos, nuevos } = fotosPorTrabajo[index];
-      if (viejos.length === 0 || nuevos.length === 0) {
-        throw new AppError(
-          400,
-          `En el trabajo «${trabajo.parte.trim() || index + 1}»: agrega al menos una foto de repuesto viejo y una de repuesto nuevo.`,
-        );
-      }
-      return {
-        parte: trabajo.parte.trim(),
-        descripcion: trabajo.descripcion.trim(),
-        fotosViejos: viejos.map((f) => `/uploads/trabajos/${f.filename}`),
-        fotosNuevos: nuevos.map((f) => `/uploads/trabajos/${f.filename}`),
-      };
-    });
+    const trabajosConFoto = trabajos;
 
     const citaActual = await prisma.cita.findUnique({
       where: { id: idParam(req.params) },

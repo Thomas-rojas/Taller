@@ -188,6 +188,7 @@ export type ActividadCliente = {
     fotosNuevos?: string[];
     placa?: string | null;
     servicio?: string | null;
+    enProgreso?: boolean;
   } | null;
   placa: string | null;
   servicio: string | null;
@@ -308,6 +309,12 @@ export const api = {
         data.trabajos.map((trabajo) => ({
           parte: trabajo.parte,
           descripcion: trabajo.descripcion,
+          fotosViejos: trabajo.fotosViejos
+            .map((foto) => foto.url)
+            .filter((url): url is string => Boolean(url)),
+          fotosNuevos: trabajo.fotosNuevos
+            .map((foto) => foto.url)
+            .filter((url): url is string => Boolean(url)),
         })),
       ),
     );
@@ -326,6 +333,42 @@ export const api = {
       diasLiberados: number;
       fechasBloqueadas: string[];
     }>(`/api/citas/${citaId}/entregar`, apiKey, form);
+  },
+  guardarTrabajoBorrador: (
+    apiKey: string,
+    citaId: string,
+    data: { placa: string; trabajos: ItemTrabajoForm[] },
+  ) => {
+    const form = new FormData();
+    if (data.placa.trim()) form.append("placa", data.placa.trim());
+    form.append(
+      "trabajos",
+      JSON.stringify(
+        data.trabajos.map((trabajo) => ({
+          parte: trabajo.parte,
+          descripcion: trabajo.descripcion,
+          fotosViejos: trabajo.fotosViejos
+            .map((foto) => foto.url)
+            .filter((url): url is string => Boolean(url)),
+          fotosNuevos: trabajo.fotosNuevos
+            .map((foto) => foto.url)
+            .filter((url): url is string => Boolean(url)),
+        })),
+      ),
+    );
+    data.trabajos.forEach((trabajo, index) => {
+      trabajo.fotosViejos.forEach((foto) => {
+        if (foto.file) form.append(`trabajo_${index}_viejo`, foto.file);
+      });
+      trabajo.fotosNuevos.forEach((foto) => {
+        if (foto.file) form.append(`trabajo_${index}_nuevo`, foto.file);
+      });
+    });
+    return mechanicFormRequest<{ message: string; cita: Cita }>(
+      `/api/citas/${citaId}/trabajo-borrador`,
+      apiKey,
+      form,
+    );
   },
   notificarRetiroCliente: (adminKey: string, citaId: string) =>
     mechanicRequest<{
