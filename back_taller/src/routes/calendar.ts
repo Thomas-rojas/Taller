@@ -64,6 +64,7 @@ router.post("/test", async (_req, res, next) => {
       fechaEntrega,
       fechaEntregaReal: null,
       placa: null,
+      estadoMotoIngreso: null,
       descripcionTrabajo: null,
       datosReparacionBloqueados: false,
       registradoPor: null,

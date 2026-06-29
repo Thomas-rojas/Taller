@@ -26,6 +26,7 @@ model Cita {
   email                    String?
   mensaje                  String?
   placa                    String?
+  estadoMotoIngreso        String?
   descripcionTrabajo       String?
   datosReparacionBloqueados Boolean       @default(false)
   registradoPor            String?
@@ -38,8 +39,22 @@ model Cita {
   servicioId               String?
   servicio                 Servicio?      @relation(fields: [servicioId], references: [id], onDelete: SetNull)
   diasBloqueados           DiaBloqueado[]
+  actividades              CitaActividad[]
   createdAt                DateTime       @default(now())
   updatedAt                DateTime       @updatedAt
+}
+
+model CitaActividad {
+  id          String   @id @default(cuid())
+  citaId      String
+  cita        Cita     @relation(fields: [citaId], references: [id], onDelete: Cascade)
+  tipo        String
+  titulo      String
+  descripcion String?
+  datos       String?
+  createdAt   DateTime @default(now())
+
+  @@index([citaId, createdAt])
 }
 
 model DiaBloqueado {
@@ -94,5 +109,51 @@ model Configuracion {
   instagram String?
   facebook  String?
   youtube   String?
+  updatedAt DateTime @updatedAt
+}
+
+model Mecanico {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  nombre             String
+  apellidos          String
+  celular            String    @unique
+  direccion          String    @default("")
+  tipoIdentificacion String
+  identificacion     String
+  passwordHash       String
+  aprobado           Boolean   @default(false)
+  activo             Boolean   @default(true)
+  sessionToken       String?   @unique
+  sessionExpiresAt   DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([tipoIdentificacion, identificacion])
+}
+
+model Cliente {
+  id               String       @id @default(cuid())
+  nombre           String
+  telefono         String       @unique
+  email            String       @unique
+  passwordHash     String
+  activo           Boolean      @default(true)
+  sessionToken     String?      @unique
+  sessionExpiresAt DateTime?
+  testimonio       Testimonio?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model Testimonio {
+  id        String   @id @default(cuid())
+  clienteId String   @unique
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nombre    String
+  moto      String
+  texto     String
+  publicado Boolean  @default(true)
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

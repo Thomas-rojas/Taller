@@ -1,9 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { calcularFechaEntrega, aFechaCalendario, esDomingo } from "../lib/fechas.js";
+import {
+  calcularFechaEntrega,
+  aFechaCalendario,
+  esDomingo,
+  validarHoraLlegada,
+} from "../lib/fechas.js";
 import { AppError } from "../middleware/errorHandler.js";
-import { requireMechanic, filtrarCitaParaStaff } from "../middleware/requireMechanic.js";
+import { requireAdmin, requireMechanic, filtrarCitaParaStaff, registradoPorStaff } from "../middleware/requireMechanic.js";
 import {
   crearBloqueosMes,
   ajustarBloqueosTrasEntrega,
@@ -16,6 +21,22 @@ import {
   eliminarEventoDeGoogleCalendar,
   googleCalendarConfigurado,
 } from "../services/googleCalendar.js";
+import { uploadFotosTrabajo } from "../lib/uploadTrabajos.js";
+import { uploadRegistroIngreso } from "../lib/uploadIngreso.js";
+import { notificarClienteCitaConfirmada } from "../services/notificacionCita.js";
+import {
+  erroresNotificacionCliente,
+  evaluarNotificacionCliente,
+  whatsappAutomaticoHabilitado,
+} from "../services/whatsappAuto.js";
+import {
+  nombreMecanicoRegistro,
+  notificarAdminTrabajoFinalizado,
+  notificarClienteCalidadEnRevision,
+  notificarClienteListaRetiro,
+} from "../services/notificacionEntrega.js";
+import { registrarActividadCita } from "../services/citaActividad.js";
+import { crearCitaSolicitud } from "../services/crearCitaSolicitud.js";
 
 const router = Router();
 
@@ -69,7 +90,7 @@ router.get("/", requireMechanic, async (req, res, next) => {
       orderBy: { createdAt: "desc" },
     });
     const rol = req.staffRole ?? "mecanico";
-    res.json(citas.map((cita) => filtrarCitaParaStaff(cita, rol)));
+    res.json(citas.map((cita) => filtrarCitaParaStaff(cita, rol, req.mecanicoId)));
   } catch (error) {
     next(error);
   }
@@ -79,112 +100,181 @@ router.post("/", async (req, res, next) => {
   try {
     const data = crearCitaSchema.parse(req.body);
 
-    if (data.servicioId) {
-      const servicio = await prisma.servicio.findUnique({
-        where: { id: data.servicioId },
-      });
-      if (!servicio) {
-        throw new AppError(404, "Servicio no encontrado");
-      }
-    }
-
-    const fechaCita = data.fechaPreferida
-      ? parseFechaPreferida(data.fechaPreferida)!
-      : new Date();
-
-    if (data.fechaPreferida) {
-      if (esDomingo(fechaCita)) {
-        throw new AppError(400, "No se pueden agendar citas los domingos.");
-      }
-
-      const fechaISO = aFechaCalendario(fechaCita);
-      const bloqueadas = await obtenerFechasBloqueadas();
-      if (bloqueadas.includes(fechaISO)) {
-        throw new AppError(
-          400,
-          "Esa fecha no está disponible. El taller tiene capacidad completa ese día.",
-        );
-      }
-    }
-
-    const fechaEntrega = calcularFechaEntrega(fechaCita);
-
-    let cita = await prisma.cita.create({
-      data: {
-        nombre: data.nombre,
-        telefono: data.telefono,
-        email: data.email || null,
-        mensaje: data.mensaje || null,
-        fechaPreferida: parseFechaPreferida(data.fechaPreferida),
-        fechaEntrega,
-        servicioId: data.servicioId || null,
-      },
-      include: { servicio: true },
+    const resultado = await crearCitaSolicitud({
+      nombre: data.nombre,
+      telefono: data.telefono,
+      email: data.email || null,
+      mensaje: data.mensaje || null,
+      fechaPreferida: data.fechaPreferida,
+      servicioId: data.servicioId || null,
     });
 
-    let calendarSync: {
-      synced: boolean;
-      eventId?: string;
-      fechaEntrega: string;
-      error?: string;
-    } = {
-      synced: false,
-      fechaEntrega: fechaEntrega.toISOString(),
-    };
-
-    if (googleCalendarConfigurado()) {
-      try {
-        const eventId = await crearEventoEnGoogleCalendar(cita, fechaCita, fechaEntrega);
-        cita = await prisma.cita.update({
-          where: { id: cita.id },
-          data: { googleEventId: eventId },
-          include: { servicio: true },
-        });
-        calendarSync = {
-          synced: true,
-          eventId,
-          fechaEntrega: fechaEntrega.toISOString(),
-        };
-      } catch (error) {
-        calendarSync.error =
-          error instanceof Error
-            ? error.message
-            : "No se pudo sincronizar con Google Calendar";
-        console.error("Error al sincronizar con Google Calendar:", error);
-      }
-    } else {
-      calendarSync.error =
-        "Google Calendar no está configurado. Agrega las credenciales en back_taller/.env";
-    }
-
     res.status(201).json({
-      message: "Cita registrada. Te contactaremos pronto.",
-      cita,
-      calendarSync,
+      message: resultado.message,
+      cita: resultado.cita,
+      calendarSync: resultado.calendarSync,
     });
   } catch (error) {
     next(error);
   }
 });
 
-router.post("/:id/recibir", requireMechanic, async (req, res, next) => {
+router.post("/:id/confirmar", requireMechanic, async (req, res, next) => {
   try {
-    const schema = z.object({
+    if (req.staffRole === "admin") {
+      throw new AppError(403, "El administrador no puede aceptar citas. Un mecánico debe hacerlo.");
+    }
+
+    const citaActual = await prisma.cita.findUnique({
+      where: { id: idParam(req.params) },
+      include: { servicio: true },
+    });
+
+    if (!citaActual) {
+      throw new AppError(404, "Cita no encontrada");
+    }
+
+    if (citaActual.estado !== "pendiente") {
+      throw new AppError(400, "Solo se pueden confirmar citas en estado pendiente.");
+    }
+
+    if (!citaActual.email?.trim() && !citaActual.telefono?.trim()) {
+      throw new AppError(
+        400,
+        "El cliente no tiene correo ni teléfono registrado para enviar la notificación.",
+      );
+    }
+
+    const cita = await prisma.cita.update({
+      where: { id: citaActual.id },
+      data: { estado: "confirmada" },
+      include: { servicio: true },
+    });
+
+    const notificacion = await notificarClienteCitaConfirmada(cita);
+
+    const tieneEmail = Boolean(cita.email?.trim());
+    const tieneTelefono = Boolean(cita.telefono?.trim());
+
+    if (!evaluarNotificacionCliente(tieneEmail, tieneTelefono, notificacion)) {
+      await prisma.cita.update({
+        where: { id: cita.id },
+        data: { estado: "pendiente" },
+      });
+
+      const errores = erroresNotificacionCliente(tieneEmail, tieneTelefono, notificacion);
+
+      throw new AppError(
+        400,
+        errores.join(" ") || "No se pudo notificar al cliente. La cita sigue pendiente.",
+      );
+    }
+
+    await registrarActividadCita(
+      cita.id,
+      "confirmada",
+      "Cita confirmada",
+      "El taller confirmó tu cita.",
+      { servicio: cita.servicio?.titulo ?? null },
+    );
+
+    const rol = req.staffRole ?? "mecanico";
+    const partes: string[] = ["Cita aceptada."];
+
+    if (notificacion.correoEnviado) {
+      partes.push(`Correo enviado a ${cita.email}.`);
+    }
+
+    if (notificacion.whatsappEnviado) {
+      partes.push("WhatsApp enviado automáticamente al cliente.");
+    } else if (
+      tieneTelefono &&
+      whatsappAutomaticoHabilitado() &&
+      notificacion.whatsappError
+    ) {
+      partes.push(`WhatsApp no enviado: ${notificacion.whatsappError}`);
+    }
+
+    res.json({
+      message: partes.join(" "),
+      cita: filtrarCitaParaStaff(cita, rol, req.mecanicoId),
+      notificacion,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/:id/reenviar-confirmacion", requireMechanic, async (req, res, next) => {
+  try {
+    const cita = await prisma.cita.findUnique({
+      where: { id: idParam(req.params) },
+      include: { servicio: true },
+    });
+
+    if (!cita) {
+      throw new AppError(404, "Cita no encontrada");
+    }
+
+    if (cita.estado !== "confirmada") {
+      throw new AppError(400, "Solo se puede reenviar la confirmación de citas confirmadas.");
+    }
+
+    const notificacion = await notificarClienteCitaConfirmada(cita);
+    const tieneEmail = Boolean(cita.email?.trim());
+    const tieneTelefono = Boolean(cita.telefono?.trim());
+
+    if (!evaluarNotificacionCliente(tieneEmail, tieneTelefono, notificacion)) {
+      const errores = erroresNotificacionCliente(tieneEmail, tieneTelefono, notificacion);
+      throw new AppError(400, errores.join(" "));
+    }
+
+    const partes: string[] = ["Confirmación reenviada."];
+    if (notificacion.correoEnviado) partes.push(`Correo a ${cita.email}.`);
+    if (notificacion.whatsappEnviado) partes.push(`WhatsApp a ${cita.telefono}.`);
+
+    const rol = req.staffRole ?? "mecanico";
+    res.json({
+      message: partes.join(" "),
+      cita: filtrarCitaParaStaff(cita, rol, req.mecanicoId),
+      notificacion,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post(
+  "/:id/recibir",
+  requireMechanic,
+  (req, res, next) => {
+    uploadRegistroIngreso(req, res, (err) => {
+      if (err) {
+        return next(new AppError(400, err instanceof Error ? err.message : "Error al subir archivos"));
+      }
+      next();
+    });
+  },
+  async (req, res, next) => {
+  try {
+    const bodySchema = z.object({
       fechaRecepcion: z.string().optional(),
-      placa: z
+      estadoMotoIngreso: z
         .string()
-        .min(3, "La placa debe tener al menos 3 caracteres")
-        .max(10, "La placa no puede exceder 10 caracteres"),
-      descripcionTrabajo: z
-        .string()
-        .min(1, "Describe el trabajo realizado")
+        .min(1, "Describe el estado de la moto al ingresar")
         .max(2000, "La descripción es demasiado larga"),
     });
-    const {
-      fechaRecepcion: fechaRecepcionRaw,
-      placa,
-      descripcionTrabajo,
-    } = schema.parse(req.body);
+    const { fechaRecepcion: fechaRecepcionRaw, estadoMotoIngreso } = bodySchema.parse(req.body);
+
+    const archivos = req.files as
+      | { fotos?: Express.Multer.File[]; videos?: Express.Multer.File[] }
+      | undefined;
+    const fotos = archivos?.fotos ?? [];
+    const videos = archivos?.videos ?? [];
+
+    if (fotos.length === 0 && videos.length === 0) {
+      throw new AppError(400, "Agrega al menos una foto o un video del estado de la moto.");
+    }
 
     const citaActual = await prisma.cita.findUnique({
       where: { id: idParam(req.params) },
@@ -194,19 +284,12 @@ router.post("/:id/recibir", requireMechanic, async (req, res, next) => {
       throw new AppError(404, "Cita no encontrada");
     }
 
-    if (citaActual.datosReparacionBloqueados) {
-      throw new AppError(
-        400,
-        "Los datos de reparación ya están registrados y no pueden modificarse.",
-      );
-    }
-
     if (citaActual.estado === "recibida") {
       throw new AppError(400, "Esta moto ya fue recibida en el taller.");
     }
 
-    if (citaActual.estado === "entregada") {
-      throw new AppError(400, "Esta moto ya fue entregada.");
+    if (["entregada", "finalizada", "lista_retiro"].includes(citaActual.estado)) {
+      throw new AppError(400, "Esta moto ya fue procesada en el taller.");
     }
 
     if (citaActual.estado === "cancelada") {
@@ -217,40 +300,121 @@ router.post("/:id/recibir", requireMechanic, async (req, res, next) => {
       ? parseFecha(fechaRecepcionRaw, "Fecha de recepción")
       : citaActual.fechaPreferida ?? new Date();
 
+    const registroIngreso = {
+      descripcion: estadoMotoIngreso.trim(),
+      fotos: fotos.map((f) => `/uploads/ingreso/${f.filename}`),
+      videos: videos.map((v) => `/uploads/ingreso/${v.filename}`),
+    };
+
     const cita = await prisma.cita.update({
       where: { id: idParam(req.params) },
       data: {
         estado: "recibida",
         fechaRecepcion,
-        placa: placa.trim().toUpperCase(),
-        descripcionTrabajo: descripcionTrabajo.trim(),
-        datosReparacionBloqueados: true,
-        registradoPor: req.staffRole ?? "mecanico",
+        estadoMotoIngreso: JSON.stringify(registroIngreso),
       },
       include: { servicio: true },
     });
 
     await crearBloqueosMes(cita.id, fechaRecepcion);
 
+    await registrarActividadCita(
+      cita.id,
+      "recepcion",
+      "Moto recibida en taller",
+      registroIngreso.descripcion,
+      registroIngreso,
+    );
+
     const fechasBloqueadas = await obtenerFechasBloqueadas();
     const rol = req.staffRole ?? "mecanico";
 
     res.json({
-      message: `Moto recibida (placa ${cita.placa}). Días bloqueados desde ${aFechaCalendario(fechaRecepcion)} hasta fin de mes. Datos de reparación bloqueados.`,
-      cita: filtrarCitaParaStaff(cita, rol),
+      message: `Moto recibida. Días bloqueados desde ${aFechaCalendario(fechaRecepcion)} hasta fin de mes.`,
+      cita: filtrarCitaParaStaff(cita, rol, req.mecanicoId),
       fechasBloqueadas,
     });
   } catch (error) {
     next(error);
   }
+  },
+);
+
+const itemTrabajoSchema = z.object({
+  parte: z
+    .string()
+    .min(1, "Indica la pieza o componente")
+    .max(100, "El nombre es demasiado largo"),
+  descripcion: z
+    .string()
+    .min(1, "Describe qué se le hizo")
+    .max(500, "La descripción es demasiado larga"),
 });
 
-router.post("/:id/entregar", requireMechanic, async (req, res, next) => {
-  try {
-    const schema = z.object({
-      fechaEntrega: z.string().min(1, "La fecha de entrega es requerida"),
+router.post(
+  "/:id/entregar",
+  requireMechanic,
+  (req, res, next) => {
+    uploadFotosTrabajo.any()(req, res, (err) => {
+      if (err) {
+        return next(new AppError(400, err instanceof Error ? err.message : "Error al subir fotos"));
+      }
+      next();
     });
-    const { fechaEntrega: fechaEntregaRaw } = schema.parse(req.body);
+  },
+  async (req, res, next) => {
+  try {
+    const bodySchema = z.object({
+      fechaEntrega: z.string().min(1, "La fecha de entrega es requerida"),
+      placa: z
+        .string()
+        .min(3, "La placa debe tener al menos 3 caracteres")
+        .max(10, "La placa no puede exceder 10 caracteres"),
+      trabajos: z.string().min(1, "Agrega al menos un trabajo"),
+    });
+    const { fechaEntrega: fechaEntregaRaw, placa, trabajos: trabajosRaw } =
+      bodySchema.parse(req.body);
+
+    let trabajosParsed: unknown;
+    try {
+      trabajosParsed = JSON.parse(trabajosRaw);
+    } catch {
+      throw new AppError(400, "Formato de trabajos inválido.");
+    }
+
+    const trabajos = z.array(itemTrabajoSchema).min(1, "Agrega al menos un trabajo").parse(trabajosParsed);
+
+    const archivos = (req.files as Express.Multer.File[] | undefined) ?? [];
+    const fotosPorTrabajo = Array.from({ length: trabajos.length }, () => ({
+      viejos: [] as Express.Multer.File[],
+      nuevos: [] as Express.Multer.File[],
+    }));
+
+    for (const archivo of archivos) {
+      const match = archivo.fieldname.match(/^trabajo_(\d+)_(viejo|nuevo)$/);
+      if (!match) continue;
+      const indice = Number(match[1]);
+      const tipo = match[2];
+      if (indice < 0 || indice >= trabajos.length) continue;
+      if (tipo === "viejo") fotosPorTrabajo[indice].viejos.push(archivo);
+      else fotosPorTrabajo[indice].nuevos.push(archivo);
+    }
+
+    const trabajosConFoto = trabajos.map((trabajo, index) => {
+      const { viejos, nuevos } = fotosPorTrabajo[index];
+      if (viejos.length === 0 || nuevos.length === 0) {
+        throw new AppError(
+          400,
+          `En el trabajo «${trabajo.parte.trim() || index + 1}»: agrega al menos una foto de repuesto viejo y una de repuesto nuevo.`,
+        );
+      }
+      return {
+        parte: trabajo.parte.trim(),
+        descripcion: trabajo.descripcion.trim(),
+        fotosViejos: viejos.map((f) => `/uploads/trabajos/${f.filename}`),
+        fotosNuevos: nuevos.map((f) => `/uploads/trabajos/${f.filename}`),
+      };
+    });
 
     const citaActual = await prisma.cita.findUnique({
       where: { id: idParam(req.params) },
@@ -264,6 +428,13 @@ router.post("/:id/entregar", requireMechanic, async (req, res, next) => {
       throw new AppError(
         400,
         "Solo se pueden entregar motos que estén en estado recibida.",
+      );
+    }
+
+    if (citaActual.datosReparacionBloqueados) {
+      throw new AppError(
+        400,
+        "Los datos de reparación ya están registrados y no pueden modificarse.",
       );
     }
 
@@ -286,23 +457,176 @@ router.post("/:id/entregar", requireMechanic, async (req, res, next) => {
     const cita = await prisma.cita.update({
       where: { id: idParam(req.params) },
       data: {
-        estado: "entregada",
+        estado: "finalizada",
         fechaEntregaReal,
+        placa: placa.trim().toUpperCase(),
+        descripcionTrabajo: JSON.stringify(trabajosConFoto),
+        datosReparacionBloqueados: true,
+        registradoPor: registradoPorStaff(req),
       },
       include: { servicio: true },
     });
 
     const diasLiberados = await ajustarBloqueosTrasEntrega(cita.id, fechaEntregaReal);
+    const nombreMecanico = await nombreMecanicoRegistro(cita.registradoPor);
+    const notificacionAdmin = await notificarAdminTrabajoFinalizado(cita, nombreMecanico);
+    const notificacionCliente = await notificarClienteCalidadEnRevision(cita);
+
+    for (const trabajo of trabajosConFoto) {
+      await registrarActividadCita(
+        cita.id,
+        "trabajo",
+        `Trabajo: ${trabajo.parte}`,
+        trabajo.descripcion,
+        trabajo,
+      );
+    }
+
+    await registrarActividadCita(
+      cita.id,
+      "finalizada",
+      "Trabajo finalizado — control de calidad",
+      `Placa ${cita.placa}. Tu moto está en revisión de calidad.`,
+      { placa: cita.placa },
+    );
 
     const fechasBloqueadas = await obtenerFechasBloqueadas();
     const rol = req.staffRole ?? "mecanico";
 
+    const partesAdmin: string[] = [];
+    if (notificacionAdmin.correoEnviado) partesAdmin.push("correo");
+    if (notificacionAdmin.whatsappEnviado) partesAdmin.push("WhatsApp");
+    const avisoAdmin =
+      partesAdmin.length > 0
+        ? ` Administrador notificado por ${partesAdmin.join(" y ")}.`
+        : " No se pudo notificar al administrador automáticamente.";
+
+    const partesCliente: string[] = [];
+    if (notificacionCliente.correoEnviado) partesCliente.push("correo");
+    if (notificacionCliente.whatsappEnviado) partesCliente.push("WhatsApp");
+    const avisoCliente =
+      partesCliente.length > 0
+        ? ` Cliente avisado de control de calidad por ${partesCliente.join(" y ")}.`
+        : cita.telefono?.trim() || cita.email?.trim()
+          ? " No se pudo avisar al cliente del control de calidad."
+          : "";
+
     res.json({
-      message: `Moto entregada. Ocupados del ${fechaRecepcionISO} al ${fechaEntregaISO}. ${diasLiberados} día(s) liberados para nuevas motos.`,
-      cita: filtrarCitaParaStaff(cita, rol),
+      message: `Trabajo finalizado (placa ${cita.placa}). La moto pasa a control de calidad.${avisoCliente}${avisoAdmin}`,
+      cita: filtrarCitaParaStaff(cita, rol, req.mecanicoId),
       periodoOcupado: { desde: fechaRecepcionISO, hasta: fechaEntregaISO },
       diasLiberados,
       fechasBloqueadas,
+      notificacionAdmin,
+      notificacionCliente,
+    });
+  } catch (error) {
+    next(error);
+  }
+  },
+);
+
+router.post("/:id/notificar-retiro", requireAdmin, async (req, res, next) => {
+  try {
+    const citaActual = await prisma.cita.findUnique({
+      where: { id: idParam(req.params) },
+      include: { servicio: true },
+    });
+
+    if (!citaActual) {
+      throw new AppError(404, "Cita no encontrada");
+    }
+
+    if (citaActual.estado !== "finalizada") {
+      throw new AppError(400, "Solo se puede avisar al cliente cuando el trabajo está finalizado.");
+    }
+
+    if (!citaActual.email?.trim() && !citaActual.telefono?.trim()) {
+      throw new AppError(400, "El cliente no tiene correo ni teléfono para enviar el aviso.");
+    }
+
+    const notificacion = await notificarClienteListaRetiro(citaActual);
+
+    const tieneEmail = Boolean(citaActual.email?.trim());
+    const tieneTelefono = Boolean(citaActual.telefono?.trim());
+
+    if (!evaluarNotificacionCliente(tieneEmail, tieneTelefono, notificacion)) {
+      const errores = erroresNotificacionCliente(tieneEmail, tieneTelefono, notificacion);
+      throw new AppError(
+        400,
+        errores.join(" ") || "No se pudo notificar al cliente.",
+      );
+    }
+
+    const cita = await prisma.cita.update({
+      where: { id: citaActual.id },
+      data: { estado: "lista_retiro" },
+      include: { servicio: true },
+    });
+
+    await registrarActividadCita(
+      cita.id,
+      "lista_retiro",
+      "Lista para retirar",
+      "Tu moto pasó el control de calidad. Puedes pasar a recogerla.",
+      { placa: cita.placa },
+    );
+
+    const partes: string[] = ["Cliente avisado: puede retirar su moto."];
+    if (notificacion.correoEnviado) partes.push(`Correo enviado a ${cita.email}.`);
+    if (notificacion.whatsappEnviado) partes.push("WhatsApp enviado al cliente.");
+
+    res.json({
+      message: partes.join(" "),
+      cita,
+      notificacion,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/:id/entregar-cliente", requireMechanic, async (req, res, next) => {
+  try {
+    const citaActual = await prisma.cita.findUnique({
+      where: { id: idParam(req.params) },
+      include: { servicio: true },
+    });
+
+    if (!citaActual) {
+      throw new AppError(404, "Cita no encontrada");
+    }
+
+    if (citaActual.estado !== "lista_retiro") {
+      throw new AppError(
+        400,
+        "Solo se puede entregar la moto al cliente cuando ya fue avisado para retirarla.",
+      );
+    }
+
+    const cita = await prisma.cita.update({
+      where: { id: citaActual.id },
+      data: {
+        estado: "entregada",
+        fechaEntregaReal: new Date(),
+      },
+      include: { servicio: true },
+    });
+
+    await registrarActividadCita(
+      cita.id,
+      "entregada",
+      "Moto entregada",
+      cita.placa
+        ? `Entrega completada. Placa ${cita.placa}.`
+        : "Entrega completada. ¡Gracias por confiar en nosotros!",
+      { placa: cita.placa },
+    );
+
+    const rol = req.staffRole ?? "mecanico";
+    res.json({
+      message: `Moto entregada al cliente ${cita.nombre}${cita.placa ? ` (placa ${cita.placa})` : ""}.`,
+      cita: filtrarCitaParaStaff(cita, rol, req.mecanicoId),
     });
   } catch (error) {
     next(error);
@@ -311,7 +635,15 @@ router.post("/:id/entregar", requireMechanic, async (req, res, next) => {
 
 router.patch("/:id/estado", requireMechanic, async (req, res, next) => {
   try {
-    const estados = ["pendiente", "confirmada", "recibida", "entregada", "cancelada"] as const;
+    const estados = [
+      "pendiente",
+      "confirmada",
+      "recibida",
+      "finalizada",
+      "lista_retiro",
+      "entregada",
+      "cancelada",
+    ] as const;
     const schema = z.object({
       estado: z.enum(estados),
     });

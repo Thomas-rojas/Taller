@@ -1,6 +1,7 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
+import path from "path";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { prisma } from "./lib/prisma.js";
 import citasRouter from "./routes/citas.js";
@@ -9,7 +10,14 @@ import galeriaRouter from "./routes/galeria.js";
 import chatRouter from "./routes/chat.js";
 import configRouter from "./routes/config.js";
 import calendarRouter from "./routes/calendar.js";
+import mecanicosRouter from "./routes/mecanicos.js";
+import clientesRouter from "./routes/clientes.js";
+import adminRouter from "./routes/admin.js";
+import testimoniosRouter from "./routes/testimonios.js";
 import { google } from "googleapis";
+import { iniciarWhatsAppBaileys } from "./services/whatsappBaileys.js";
+import { greenApiConfigurado } from "./services/greenApi.js";
+import { whatsappCloudConfigurado } from "./services/whatsappCloud.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
@@ -23,6 +31,7 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 app.get("/api/health", async (_req, res) => {
   try {
@@ -61,6 +70,10 @@ app.use("/api/galeria", galeriaRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/config", configRouter);
 app.use("/api/calendar", calendarRouter);
+app.use("/api/mecanicos", mecanicosRouter);
+app.use("/api/clientes", clientesRouter);
+app.use("/api/admin", adminRouter);
+app.use("/api/testimonios", testimoniosRouter);
 
 app.get("/oauth2callback", async (req, res, next) => {
   try {
@@ -104,4 +117,16 @@ app.use(errorHandler);
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`API corriendo en http://localhost:${port}`);
+  console.log(`[WhatsApp] WHATSAPP_BAILEYS=${process.env.WHATSAPP_BAILEYS ?? "(sin definir)"}`);
+
+  if (greenApiConfigurado()) {
+    console.log("[WhatsApp] Green API configurada — envío automático activo.");
+  } else if (whatsappCloudConfigurado()) {
+    console.log("[WhatsApp] Meta Cloud API configurada — envío automático activo.");
+  } else if (process.env.WHATSAPP_BAILEYS !== "false") {
+    console.log("[WhatsApp] Iniciando whatsapp-web.js (escanea el QR en /mecanico).");
+    iniciarWhatsAppBaileys();
+  } else {
+    console.log("[WhatsApp] Desactivado — las notificaciones se envían por correo.");
+  }
 });

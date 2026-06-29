@@ -3,4 +3,7 @@ dist/
 .env
 *.db
 *.db-journal
+uploads/
 prisma/dev.db
+.whatsapp-auth/
+.wwebjs_cache/

@@ -6,6 +6,7 @@ import {
   aFechaCalendario,
   diaSiguiente,
   formatearFecha,
+  formatearFechaHora,
 } from "../lib/fechas.js";
 
 type CitaConServicio = Cita & { servicio: Servicio | null };
@@ -48,7 +49,7 @@ function construirDescripcion(cita: CitaConServicio, fechaCita: Date, fechaEntre
     `Email: ${cita.email ?? "No indicado"}`,
     `Servicio: ${cita.servicio?.titulo ?? "No especificado"}`,
     `Estado: ${cita.estado}`,
-    `Fecha de cita original: ${formatearFecha(fechaCita)}`,
+    `Fecha de cita original: ${formatearFechaHora(fechaCita)}`,
     `Fecha de entrega programada (+${DIAS_RETRASO_ENTREGA} días): ${formatearFecha(fechaEntrega)}`,
     "",
     `Mensaje del cliente: ${cita.mensaje ?? "Sin mensaje adicional"}`,

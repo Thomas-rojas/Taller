@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Panel del mecánico | Moto Taller Familiar",
+  title: "Ingresa o regístrate | Moto Taller Familiar",
   description: "Gestión de recepción, entrega y calendario del taller",
 };
 

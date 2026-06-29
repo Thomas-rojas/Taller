@@ -17,6 +17,42 @@ export function formatearFecha(fecha: Date) {
   });
 }
 
+export function formatearFechaHora(fecha: Date) {
+  return fecha.toLocaleString("es-CO", {
+    timeZone: TIMEZONE,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+export const HORA_APERTURA = 8;
+export const HORA_CIERRE = 18;
+
+function extraerHoraBogota(fecha: Date) {
+  const partes = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(fecha);
+
+  return {
+    horas: Number(partes.find((p) => p.type === "hour")?.value ?? 0),
+    minutos: Number(partes.find((p) => p.type === "minute")?.value ?? 0),
+  };
+}
+
+export function validarHoraLlegada(fecha: Date) {
+  const { horas, minutos } = extraerHoraBogota(fecha);
+  const total = horas * 60 + minutos;
+  return total >= HORA_APERTURA * 60 && total <= HORA_CIERRE * 60;
+}
+
 export function aFechaCalendario(fecha: Date) {
   return fecha.toLocaleDateString("en-CA", { timeZone: TIMEZONE });
 }

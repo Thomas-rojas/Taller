@@ -74,21 +74,21 @@ export default function DatePickerCita({
     iso < hoy || esDomingo(iso) || bloqueadas.has(iso);
 
   return (
-    <div className="bg-[#262626] rounded-xl p-4">
+    <div className="bg-white border border-[#e8e8e8] p-4">
       <div className="flex items-center justify-between mb-4">
         <button
           type="button"
           onClick={() => cambiarMes(-1)}
-          className="p-2 rounded-lg hover:bg-[#333] transition-colors"
+          className="p-2 hover:bg-[#f7f7f7] transition-colors text-[#737373]"
           aria-label="Mes anterior"
         >
           <ChevronLeft size={18} />
         </button>
-        <p className="font-semibold capitalize">{tituloMes}</p>
+        <p className="text-sm font-medium capitalize text-[#111111]">{tituloMes}</p>
         <button
           type="button"
           onClick={() => cambiarMes(1)}
-          className="p-2 rounded-lg hover:bg-[#333] transition-colors"
+          className="p-2 hover:bg-[#f7f7f7] transition-colors text-[#737373]"
           aria-label="Mes siguiente"
         >
           <ChevronRight size={18} />
@@ -97,7 +97,7 @@ export default function DatePickerCita({
 
       <div className="grid grid-cols-7 gap-1 mb-2">
         {DIAS_SEMANA.map((dia) => (
-          <span key={dia} className="text-center text-xs text-gray-400 py-1">
+          <span key={dia} className="text-center text-xs text-[#737373] py-1">
             {dia}
           </span>
         ))}
@@ -125,41 +125,35 @@ export default function DatePickerCita({
                 esRecepcion
                   ? `Moto recibida: ${recepcionesDia.map((r) => r.nombre).join(", ")}`
                   : bloqueada
-                    ? "Fecha no disponible (taller con capacidad completa)"
+                    ? "No disponible"
                     : esDomingo(celda.iso)
-                      ? "Domingo — no hay atención"
+                      ? "Domingo — cerrado"
                       : undefined
               }
               className={[
-                "relative aspect-square rounded-lg text-sm transition-colors flex flex-col items-center justify-center gap-0.5",
+                "relative aspect-square text-sm transition-colors flex flex-col items-center justify-center gap-0.5",
                 seleccionada
-                  ? "bg-orange-500 text-white font-bold"
+                  ? "bg-[#111111] text-white font-medium"
                   : esRecepcion
-                    ? "bg-amber-500/25 text-amber-200 ring-1 ring-amber-500/60 cursor-not-allowed"
+                    ? "bg-[#e8774a]/10 text-[#e8774a] ring-1 ring-[#e8774a]/30 cursor-not-allowed"
                     : deshabilitada
-                      ? "text-gray-600 cursor-not-allowed"
-                      : "hover:bg-orange-500/20 text-white",
-                bloqueada && !seleccionada && !esRecepcion ? "line-through opacity-50" : "",
+                      ? "text-[#d4d4d4] cursor-not-allowed"
+                      : "hover:bg-[#f7f7f7] text-[#111111]",
+                bloqueada && !seleccionada && !esRecepcion ? "line-through opacity-40" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
             >
               <span>{celda.dia}</span>
               {esRecepcion && (
-                <Wrench size={10} className={seleccionada ? "text-white" : "text-amber-400"} />
+                <Wrench size={10} className={seleccionada ? "text-white" : "text-[#e8774a]"} />
               )}
             </button>
           );
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-gray-400">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded bg-amber-500/40 ring-1 ring-amber-500/60" />
-          Moto recibida en taller
-        </span>
-        <span>Fechas tachadas = no disponibles</span>
-      </div>
+      <p className="text-xs text-[#737373] mt-3">Domingos y fechas tachadas no están disponibles.</p>
     </div>
   );
 }
